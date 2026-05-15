@@ -19,13 +19,16 @@ class ScreenCaptureService {
             return nil
         }
 
+        // Get the scale factor for Retina displays
+        let scaleFactor = getScaleFactor(for: display)
+
         // Create content filter for the display
         let filter = SCContentFilter(display: display, excludingWindows: [])
 
-        // Create stream configuration
+        // Create stream configuration with actual pixel dimensions
         let config = SCStreamConfiguration()
-        config.width = Int(rect.width)
-        config.height = Int(rect.height)
+        config.width = Int(rect.width * scaleFactor)
+        config.height = Int(rect.height * scaleFactor)
         config.sourceRect = rect
 
         // Capture single frame
@@ -33,7 +36,7 @@ class ScreenCaptureService {
         return image
     }
 
-    /// Capture the entire display
+    /// Capture the entire display at full resolution
     func captureDisplay() async throws -> CGImage? {
         let content = try await SCShareableContent.excludingDesktopWindows(
             false,
@@ -45,45 +48,58 @@ class ScreenCaptureService {
             return nil
         }
 
+        // Get the scale factor for Retina displays
+        let scaleFactor = getScaleFactor(for: display)
+
         let filter = SCContentFilter(display: display, excludingWindows: [])
         let config = SCStreamConfiguration()
 
-        // Use display's native resolution
+        // Use display's native resolution (actual pixels, not logical points)
         let displayFrame = display.frame
-        config.width = Int(displayFrame.width)
-        config.height = Int(displayFrame.height)
+        config.width = Int(displayFrame.width * scaleFactor)
+        config.height = Int(displayFrame.height * scaleFactor)
         config.sourceRect = displayFrame
 
         let image = try await captureImage(filter: filter, config: config)
         return image
     }
 
+    /// Get the scale factor for a display (handles Retina displays)
+    private func getScaleFactor(for display: SCDisplay) -> CGFloat {
+        // Try to get the native scale factor from ScreenCaptureKit
+        // The display's frame is in points, but we need actual pixels
+        // For Retina displays, this is typically 2.0
+        if let mainScreen = NSScreen.main {
+            return mainScreen.backingScaleFactor
+        }
+        // Fallback: assume Retina (2x) if we can't determine
+        return 2.0
+    }
+
     /// Capture a single frame from SCStream
     private func captureImage(filter: SCContentFilter, config: SCStreamConfiguration) async throws -> CGImage {
-        // For macOS 13+, we can use SCScreenshotManager for single frame capture
-        // This is simpler than setting up a full stream
-
-        #if swift(>=5.9)
-        // macOS 14+ has SCScreenshotManager
+        // For macOS 14+, use SCScreenshotManager
         if #available(macOS 14.0, *) {
             return try await SCScreenshotManager.captureImage(
                 contentFilter: filter,
                 configuration: config
             )
         }
-        #endif
 
-        // For macOS 13, we need to use SCStream with a single-frame handler
-        // This is a workaround - in production, we'd set up a proper stream
-        // For the spike, we'll use CGWindowListCopyWindowInfo as fallback
+        // For macOS 13, use CGDisplayCreateImage with proper resolution
+        let mainDisplay = CGMainDisplayID()
+        let sourceRect = config.sourceRect
 
-        // Fallback: use CGDisplayCreateImage
-        guard let mainDisplay = CGMainDisplayID() as CGDirectDisplayID? else {
-            throw ScreenCaptureError.noDisplay
+        // Get actual pixel dimensions for Retina
+        let pixelsWide = CGDisplayPixelsWide(mainDisplay)
+        let pixelsHigh = CGDisplayPixelsHigh(mainDisplay)
+        let displayBounds = CGRect(x: 0, y: 0, width: pixelsWide, height: pixelsHigh)
+
+        // Create image at full resolution
+        guard let image = CGDisplayCreateImage(mainDisplay, rect: sourceRect.isEmpty ? displayBounds : sourceRect) else {
+            throw ScreenCaptureError.captureFailed
         }
-
-        let image = CGDisplayCreateImage(mainDisplay, rect: config.sourceRect)
-        return image!
+        return image
     }
 
     /// Save image to file
@@ -99,7 +115,7 @@ class ScreenCaptureService {
         CGImageDestinationAddImage(dest, image, nil)
         CGImageDestinationFinalize(dest)
 
-        print("Image saved to: \(path)")
+        print("Image saved to: \(path) (\(image.width)x\(image.height) pixels)")
         return true
     }
 
@@ -109,7 +125,7 @@ class ScreenCaptureService {
         pasteboard.clearContents()
         let nsImage = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
         pasteboard.writeObjects([nsImage])
-        print("Image copied to clipboard")
+        print("Image copied to clipboard (\(image.width)x\(image.height) pixels)")
     }
 }
 
