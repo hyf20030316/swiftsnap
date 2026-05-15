@@ -1,5 +1,6 @@
 import ScreenCaptureKit
 import Cocoa
+import UniformTypeIdentifiers
 
 /// Handles screen capture using ScreenCaptureKit (macOS 13+)
 class ScreenCaptureService {
@@ -136,9 +137,9 @@ enum ImageFormat {
     var contentType: CFString {
         switch self {
         case .png:
-            return kUTTypePNG
+            return UTType.png.identifier as CFString
         case .jpeg:
-            return kUTTypeJPEG
+            return UTType.jpeg.identifier as CFString
         }
     }
 }

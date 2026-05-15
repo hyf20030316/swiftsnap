@@ -20,6 +20,7 @@ struct SwiftSnapApp: App {
 class AppDelegate: ObservableObject {
     private var keyMonitor: KeyEventMonitor?
     private var captureService: ScreenCaptureService?
+    private var selectionWindow: SelectionOverlayWindow?
 
     func startMonitoring() {
         keyMonitor = KeyEventMonitor()
@@ -40,21 +41,46 @@ class AppDelegate: ObservableObject {
     }
 
     private func handleDoubleTapOption() {
-        print("📸 Triggering screenshot...")
+        print("📸 Starting region selection...")
 
-        // For spike: capture entire screen
+        // Show selection overlay
+        selectionWindow = SelectionOverlayWindow(
+            onSelectionComplete: { [weak self] rect in
+                self?.captureRegion(rect: rect)
+            },
+            onCancel: {
+                print("📸 Selection cancelled")
+            }
+        )
+
+        // Make the window accept key events
+        selectionWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    private func captureRegion(rect: CGRect) {
+        print("📸 Capturing region: \(rect)")
+
+        // Convert NSView coordinates to CGDisplay coordinates
+        // NSView uses flipped coordinates (y=0 at bottom)
+        // CGDisplay uses unflipped coordinates (y=0 at top)
+        let screenHeight = NSScreen.main?.frame.height ?? 0
+        let cgRect = CGRect(
+            x: rect.origin.x,
+            y: screenHeight - rect.origin.y - rect.height,
+            width: rect.width,
+            height: rect.height
+        )
+
         Task {
             do {
-                let image = try await captureService?.captureDisplay()
+                let image = try await captureService?.captureRegion(rect: cgRect)
                 if let img = image {
                     // Save to Desktop
                     let timestamp = DateFormatter.filenameFormat.string(from: Date())
-                    let path = "~/Desktop/SpikeScreenshot_\(timestamp).png"
+                    let path = "~/Desktop/SwiftSnap_\(timestamp).png"
                         .replacingOccurrences(of: "~", with: NSHomeDirectory())
 
-                    captureService?.saveImage(img, to: path)
-
-                    // Also copy to clipboard
+                    _ = captureService?.saveImage(img, to: path)
                     captureService?.copyToClipboard(img)
                 }
             } catch {
@@ -84,7 +110,7 @@ struct EmptyView: View {
                 .font(.largeTitle)
                 .fontWeight(.bold)
 
-            Text("Double-tap Option to capture")
+            Text("Double-tap Option to select region")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
 
@@ -99,7 +125,7 @@ struct EmptyView: View {
 
             Divider()
 
-            Text("🚧 Spike Phase — Testing keyboard monitoring")
+            Text("🚧 MVP Phase — Region selection")
                 .font(.caption2)
                 .foregroundColor(.orange)
         }
