@@ -29,12 +29,14 @@ class KeyEventMonitor {
             return false
         }
 
-        // Create event tap for keyDown events
+        // Create event tap - listen to flagsChanged for modifier keys
+        let eventsOfInterest = CGEventMask(1 << CGEventType.flagsChanged.rawValue)
+
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
             options: .defaultTap,
-            eventsOfInterest: CGEventMask(1 << CGEventType.keyDown.rawValue),
+            eventsOfInterest: eventsOfInterest,
             callback: { proxy, type, event, refcon in
                 return KeyEventMonitor.handleEvent(proxy: proxy, type: type, event: event, refcon: refcon)
             },
@@ -52,7 +54,7 @@ class KeyEventMonitor {
         CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
 
         // Enable the tap
-        CGEvent.tapEnable(tap, true)
+        CGEvent.tapEnable(tap: tap, enable: true)
 
         print("KeyEventMonitor started")
         return true
@@ -60,7 +62,7 @@ class KeyEventMonitor {
 
     func stop() {
         if let tap = eventTap {
-            CGEvent.tapEnable(tap, false)
+            CGEvent.tapEnable(tap: tap, enable: false)
             if let source = runLoopSource {
                 CFRunLoopRemoveSource(CFRunLoopGetCurrent(), source, .commonModes)
             }
@@ -83,10 +85,16 @@ class KeyEventMonitor {
 
         let monitor = Unmanaged<KeyEventMonitor>.fromOpaque(refcon).takeUnretainedValue()
 
-        // Check for Option key (keyCode 58)
-        let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
-        if keyCode == 58 {
-            monitor.handleOptionKeyPress()
+        // For flagsChanged events, check if Option key was pressed
+        if type == .flagsChanged {
+            let flags = event.flags
+            let optionPressed = flags.contains(.maskAlternate)
+
+            // keyCode 58 = Left Option, 61 = Right Option
+            let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+            if (keyCode == 58 || keyCode == 61) && optionPressed {
+                monitor.handleOptionKeyPress()
+            }
         }
 
         // Pass event through
@@ -100,7 +108,6 @@ class KeyEventMonitor {
             let interval = now.timeIntervalSince(lastTime)
             if interval < doubleTapThreshold {
                 // Double-tap detected!
-                print("Double-tap Option detected!")
                 lastOptionPressTime = nil
                 onDoubleTapOption?()
             } else {

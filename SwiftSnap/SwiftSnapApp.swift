@@ -1,14 +1,18 @@
 import SwiftUI
+import Combine
 
 @main
 struct SwiftSnapApp: App {
     @StateObject private var appDelegate = AppDelegate()
 
     var body: some Scene {
-        // This app runs in background, no main window needed for spike
-        Settings {
+        WindowGroup {
             EmptyView()
+                .onAppear {
+                    appDelegate.startMonitoring()
+                }
         }
+        .defaultSize(width: 300, height: 350)
     }
 }
 
@@ -27,8 +31,7 @@ class AppDelegate: ObservableObject {
 
         let started = keyMonitor?.start() ?? false
         if !started {
-            print("⚠️ Accessibility permission required")
-            // TODO: Show permission dialog
+            print("⚠️ Accessibility permission required - please grant in System Settings > Privacy & Security > Accessibility")
         }
     }
 
